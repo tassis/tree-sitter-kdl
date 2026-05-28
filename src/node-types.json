@@ -73,6 +73,11 @@
     }
   },
   {
+    "type": "keyword_number",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "node",
     "named": true,
     "fields": {
@@ -229,6 +234,10 @@
         {
           "type": "exponent",
           "named": true
+        },
+        {
+          "type": "keyword_number",
+          "named": true
         }
       ]
     }
@@ -243,6 +252,14 @@
       "types": [
         {
           "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
           "named": true
         },
         {
@@ -266,6 +283,10 @@
       "required": false,
       "types": [
         {
+          "type": "multi_line_string",
+          "named": true
+        },
+        {
           "type": "string_fragment",
           "named": true
         }
@@ -283,6 +304,10 @@
         {
           "type": "escape",
           "named": true
+        },
+        {
+          "type": "escaped_whitespace",
+          "named": true
         }
       ]
     }
@@ -292,7 +317,7 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
@@ -301,6 +326,14 @@
         },
         {
           "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
           "named": true
         }
       ]
@@ -319,7 +352,15 @@
           "named": true
         },
         {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
           "type": "number",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
           "named": true
         },
         {
@@ -335,6 +376,30 @@
   },
   {
     "type": "\"",
+    "named": false
+  },
+  {
+    "type": "#-inf",
+    "named": false
+  },
+  {
+    "type": "#false",
+    "named": false
+  },
+  {
+    "type": "#inf",
+    "named": false
+  },
+  {
+    "type": "#nan",
+    "named": false
+  },
+  {
+    "type": "#null",
+    "named": false
+  },
+  {
+    "type": "#true",
     "named": false
   },
   {
@@ -458,6 +523,10 @@
     "named": true
   },
   {
+    "type": "escaped_whitespace",
+    "named": true
+  },
+  {
     "type": "f32",
     "named": false
   },
@@ -519,6 +588,10 @@
   },
   {
     "type": "multi_line_comment",
+    "named": true
+  },
+  {
+    "type": "multi_line_string",
     "named": true
   },
   {

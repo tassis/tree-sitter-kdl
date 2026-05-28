@@ -53,6 +53,25 @@ const ANNOTATION_BUILTINS = [
   'base64',
 ];
 
+// Support KDL v1, v2.
+const BOOLEAN_KEYWORDS = ['true', 'false', '#true', '#false'];
+const NULL_KEYWORDS = ['null', '#null'];
+const KEYWORD_NUMBERS = ['#inf', '#-inf', '#nan'];
+
+function linespacedNodes($) {
+  return seq(
+    repeat($._linespace),
+    optional(seq(
+      $.node,
+      repeat(seq(
+        repeat($._linespace),
+        $.node,
+      )),
+    )),
+    repeat($._linespace),
+  );
+}
+
 module.exports = grammar({
   name: 'kdl',
 
@@ -60,11 +79,13 @@ module.exports = grammar({
     [$.document],
     [$._node_space],
     [$.node_children],
+    [$.identifier, $.value],
   ],
 
   externals: $ => [
     $._eof,
     $.multi_line_comment,
+    $.multi_line_string,
     $._raw_string,
   ],
 
@@ -74,24 +95,17 @@ module.exports = grammar({
 
   rules: {
     // nodes := linespace* (node nodes?)? linespace*
-    document: $ =>
-      seq(
-        repeat($._linespace),
-        optional(seq(
-          $.node,
-          repeat(seq(
-            repeat($._linespace),
-            $.node,
-          )),
-        )),
-        repeat($._linespace),
-      ),
+    document: $ => linespacedNodes($),
+
 
     // node := ('/-' node-space*)? type? identifier (node-space+ node-prop-or-arg)* (node-space* node-children ws*)? node-space* node-terminator
+    // Compatibility grammar: node names stay under `identifier` to preserve the
+    // existing AST shape, even though `identifier` itself already includes
+    // quoted/raw string forms via `$.string`.
     node: $ => prec(1,
       seq(
         alias(optional(seq('/-', repeat($._node_space))), $.node_comment),
-        optional($.type),
+        optional(seq($.type, repeat($._node_space))),
         $.identifier,
         repeat(seq(repeat1($._node_space), $.node_field)),
         optional(seq(repeat($._node_space), field('children', $.node_children), repeat($._ws))),
@@ -133,6 +147,10 @@ module.exports = grammar({
 
     // identifier := string | bare-identifier
     identifier: $ => choice($.string, $._bare_identifier),
+    // Compatibility rule: exclude `#` from the first character so KDL v2 tokens
+    // like #true / #null / #inf do not get consumed as identifiers, but keep
+    // legacy/editor-friendly support for `#` in later positions.
+
     // bare-identifier := ((identifier-char - digit - sign) identifier-char* | sign ((identifier-char - digit) identifier-char*)?) - keyword
     _bare_identifier: $ =>
       choice(
@@ -143,7 +161,7 @@ module.exports = grammar({
     // _normal_bare_identifier: $ => $.__identifier_char_no_digit_sign,
     _normal_bare_identifier: _ => token(
       seq(
-        /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}_~!@#\$%\^&\*.:'\|\?&&[^\s\d\/(){}<>;\[\]=,"]]/,
+        /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}_~!@\$%\^&\*.:'\|\?&&[^\s\d\/(){}<>;\[\]=,"]]/,
         /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"]]*/,
       ),
     ),
@@ -154,40 +172,49 @@ module.exports = grammar({
 
     // can't start with a digit
     __identifier_char_no_digit: _ => token(
-      /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\d\/(){}<>;\[\]=,"]]/,
+      /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\-_~!@\$%\^&\*.:'\|\?+&&[^\s\d\/(){}<>;\[\]=,"]]/,
     ),
 
     // can't start with a digit or sign
     __identifier_char_no_digit_sign: _ => token(
-      /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\-_~!@#\$%\^&\*.:'\|\?&&[^\s\d\+\-\/(){}<>;\[\]=,"]]/,
+      /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\-_~!@\$%\^&\*.:'\|\?&&[^\s\d\+\-\/(){}<>;\[\]=,"]]/,
     ),
 
-    // keyword := boolean | 'null'
-    keyword: $ => choice($.boolean, 'null'),
+    // Intentionally accept both v1 and v2 keywords here.
+    // If we ever add strict parsing modes, this is one of the first places to split.
+    keyword: $ => choice($.boolean, ...NULL_KEYWORDS),
+
     // type annotations
     annotation_type: _ => choice(...ANNOTATION_BUILTINS),
-    // prop := identifier '=' value
-    prop: $ => seq($.identifier, '=', $.value),
+
+    prop: $ => seq($.identifier, repeat($._node_space), '=', repeat($._node_space), $.value),
+
     // value := type? (string | number | keyword)
-    value: $ => seq(optional($.type), choice($.string, $.number, $.keyword)),
+    value: $ => seq(optional(seq($.type, repeat($._node_space))), choice($.string, $.number, $.keyword)),
+
     // type := '(' identifier ')'
-    type: $ => seq('(', choice($.identifier, $.annotation_type), ')'),
+    type: $ => seq('(', repeat($._node_space), choice($.identifier, $.annotation_type), repeat($._node_space), ')'),
 
     // String
-    // string := raw-string | escaped-string
-    string: $ => choice($._raw_string, $._escaped_string),
+    // `string` intentionally covers multiple concrete syntaxes:
+    // - v1 raw strings: r#"..."#
+    // - v2 raw strings: #"..."#
+    // - v2 multiline strings: """..."""
+    // The tricky delimiter matching lives in the external scanner.
+    string: $ => choice($._raw_string, $.multi_line_string, $._escaped_string),
     // escaped-string := '"' character* '"'
-    _escaped_string: $ => seq('"', alias(repeat(choice($.escape, /[^"]/)), $.string_fragment), '"'),
+    _escaped_string: $ => seq('"', alias(repeat(choice($.escape, $.escaped_whitespace, /[^"]/)), $.string_fragment), '"'),
     // character := '\' escape | [^\"]
-    _character: $ => choice($.escape, /[^"]/),
-    // escape := ["\\/bfnrt] | 'u{' hex-digit{1, 6} '}'
+    _character: $ => choice($.escape, $.escaped_whitespace, /[^"]/),
+    // escape := ["\\/bfnrts] | 'u{' hex-digit{1, 6} '}'
     escape: _ =>
-      token.immediate(/\\\\|\\"|\\\/|\\b|\\f|\\n|\\r|\\t|\\u\{[0-9a-fA-F]{1,6}\}/),
+      token.immediate(/\\\\|\\"|\\\/|\\b|\\f|\\n|\\r|\\t|\\s|\\u\{[0-9a-fA-F]{1,6}\}/),
+    escaped_whitespace: _ => token.immediate(/\\(?:\r\n|[\u0009\u0020\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\r\n\u0085\u000B\u000C\u2028\u2029])+/),
     // hex-digit := [0-9a-fA-F]
     _hex_digit: _ => /[0-9a-fA-F]/,
 
-    // number := decimal | hex | octal | binary
-    number: $ => choice($._decimal, $._hex, $._octal, $._binary),
+    // v2 adds keyword-like numeric literals such as #inf / #-inf / #nan.
+    number: $ => choice($.keyword_number, $._decimal, $._hex, $._octal, $._binary),
 
     // decimal := sign? integer ('.' integer)? exponent?
     _decimal: $ =>
@@ -214,8 +241,9 @@ module.exports = grammar({
     // binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*
     _binary: $ => seq(optional($._sign), '0b', choice('0', '1'), repeat(choice('0', '1', '_'))),
 
-    // boolean := 'true' | 'false'
-    boolean: _ => choice('true', 'false'),
+    keyword_number: _ => choice(...KEYWORD_NUMBERS),
+
+    boolean: _ => choice(...BOOLEAN_KEYWORDS),
 
     // escline := '\\' ws* (single-line-comment | newline)
     _escline: $ => seq('\\', repeat($._ws), choice($.single_line_comment, $._newline)),
@@ -238,8 +266,10 @@ module.exports = grammar({
     // │  PS       Paragraph Separator            U+2029          │
     // ╰──────────────────────────────────────────────────────────╯
     // Note that for the purpose of new lines, CRLF is considered a single newline.
-    _newline: _ => choice(/\r'/, /\n/, /\r\n/, /\u0085/, /\u000C/, /\u2028/, /\u2029/),
+    _newline: _ => choice(/\r\n/, /\r/, /\n/, /\u0085/, /\u000B/, /\u000C/, /\u2028/, /\u2029/),
 
+    // `ws` is non-newline whitespace.
+    // The long Unicode list is copied from the KDL spec on purpose.
     // ws := bom | unicode-space | multi-line-comment
     _ws: $ => choice($._bom, $._unicode_space, $.multi_line_comment),
 
@@ -278,7 +308,7 @@ module.exports = grammar({
     single_line_comment: $ =>
       seq(
         '//',
-        repeat(/[^\r\n\u0085\u000C\u2028\u2029]/),
+        repeat(/[^\r\n\u0085\u000B\u000C\u2028\u2029]/),
         choice($._newline, $._eof),
       ),
   },

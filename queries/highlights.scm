@@ -1,6 +1,7 @@
 ; Types
 
 (node (identifier) @type)
+(node (identifier (string) @string))
 
 (type) @type
 
@@ -25,9 +26,13 @@
 
 (string) @string
 
+(multi_line_string) @string
+
 (escape) @string.escape
 
 (number) @number
+
+(keyword_number) @number
 
 (number (decimal) @float)
 (number (exponent) @float)
@@ -35,6 +40,7 @@
 (boolean) @boolean
 
 "null" @constant.builtin
+"#null" @constant.builtin
 
 ; Punctuation
 
