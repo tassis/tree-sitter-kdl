@@ -1,0 +1,7 @@
+// KDL v2-style booleans, null, and keyword-like numbers.
+
+enabled #true
+disabled #false
+empty #null
+
+limits #inf #-inf #nan
